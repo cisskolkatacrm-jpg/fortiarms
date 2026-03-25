@@ -32,6 +32,16 @@ import {
   getYear,
   getMonth
 } from 'date-fns';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  doc, 
+  query, 
+  orderBy 
+} from 'firebase/firestore';
+import { db, auth } from '../firebase';
 
 interface RecruitmentPlan {
   id: string;
@@ -42,6 +52,58 @@ interface RecruitmentPlan {
   trainingDate: string;
   status: 'Draft' | 'Approved' | 'In Progress' | 'Completed';
   priority: 'High' | 'Medium' | 'Low';
+  uid: string;
+}
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
 }
 
 interface RecruitmentPlanningProps {
@@ -60,34 +122,8 @@ const DESIGNATIONS = [
   'Driver'
 ];
 
-const INITIAL_PLANS: RecruitmentPlan[] = [
-  {
-    id: 'RP-001',
-    branch: 'Kolkata Branch',
-    designation: 'Security Guard',
-    count: 15,
-    targetDate: '2026-04-10',
-    trainingDate: '2026-04-15',
-    status: 'Approved',
-    priority: 'High'
-  },
-  {
-    id: 'RP-002',
-    branch: 'Mumbai Branch',
-    designation: 'Supervisor',
-    count: 3,
-    targetDate: '2026-04-20',
-    trainingDate: '2026-04-25',
-    status: 'In Progress',
-    priority: 'Medium'
-  }
-];
-
 const RecruitmentPlanning: React.FC<RecruitmentPlanningProps> = ({ branches }) => {
-  const [plans, setPlans] = useState<RecruitmentPlan[]>(() => {
-    const saved = localStorage.getItem('fortia_recruitment_plans');
-    return saved ? JSON.parse(saved) : INITIAL_PLANS;
-  });
+  const [plans, setPlans] = useState<RecruitmentPlan[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('calendar');
@@ -96,16 +132,28 @@ const RecruitmentPlanning: React.FC<RecruitmentPlanningProps> = ({ branches }) =
   const [customDesignation, setCustomDesignation] = useState<string>('');
 
   useEffect(() => {
-    localStorage.setItem('fortia_recruitment_plans', JSON.stringify(plans));
-  }, [plans]);
+    const q = query(collection(db, 'recruitment_plans'), orderBy('targetDate', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const plansData = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as RecruitmentPlan[];
+      setPlans(plansData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'recruitment_plans');
+    });
 
-  const handleAddPlan = (e: React.FormEvent<HTMLFormElement>) => {
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddPlan = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!auth.currentUser) return;
+
     const formData = new FormData(e.currentTarget);
     const designation = selectedDesignation === 'Other' ? customDesignation : selectedDesignation;
     
-    const newPlan: RecruitmentPlan = {
-      id: `RP-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
+    const newPlan = {
       branch: formData.get('branch') as string,
       designation: designation,
       count: parseInt(formData.get('count') as string),
@@ -113,9 +161,23 @@ const RecruitmentPlanning: React.FC<RecruitmentPlanningProps> = ({ branches }) =
       trainingDate: formData.get('trainingDate') as string,
       status: 'Draft',
       priority: formData.get('priority') as any,
+      uid: auth.currentUser.uid
     };
-    setPlans([...plans, newPlan]);
-    setIsAdding(false);
+
+    try {
+      await addDoc(collection(db, 'recruitment_plans'), newPlan);
+      setIsAdding(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'recruitment_plans');
+    }
+  };
+
+  const updateStatus = async (id: string, newStatus: string) => {
+    try {
+      await updateDoc(doc(db, 'recruitment_plans', id), { status: newStatus });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `recruitment_plans/${id}`);
+    }
   };
 
   const getPriorityColor = (priority: string) => {

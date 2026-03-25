@@ -1,9 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, ClipboardList, User, CheckCircle2, Clock, Calendar, Timer } from 'lucide-react';
+import { Plus, X, ClipboardList, User, CheckCircle2, Clock, Calendar, Timer, Loader2 } from 'lucide-react';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  doc, 
+  query, 
+  where, 
+  orderBy 
+} from 'firebase/firestore';
+import { db, auth } from '../firebase';
 
 interface Task {
-  id: number;
+  id: string;
   title: string;
   description: string;
   assignedTo: string;
@@ -13,11 +24,10 @@ interface Task {
   date: string;
   assignmentDate?: string;
   tatDate?: string;
+  uid: string;
 }
 
 interface TaskManagementProps {
-  tasks: Task[];
-  setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   userBranch?: string;
   userName?: string;
   users: any[];
@@ -25,15 +35,15 @@ interface TaskManagementProps {
 }
 
 const TaskManagement: React.FC<TaskManagementProps> = ({
-  tasks,
-  setTasks,
   userBranch,
   userName,
   users,
   role
 }) => {
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newTask, setNewTask] = useState({ 
     title: '', 
     description: '', 
@@ -43,47 +53,81 @@ const TaskManagement: React.FC<TaskManagementProps> = ({
   });
   const [response, setResponse] = useState({ status: 'Completed', remarks: '' });
 
+  useEffect(() => {
+    const tasksRef = collection(db, 'tasks');
+    let q = query(tasksRef, orderBy('date', 'desc'));
+
+    if (role === 'Branch') {
+      q = query(tasksRef, where('branch', '==', userBranch), orderBy('date', 'desc'));
+    } else if (role !== 'Management' && role !== 'Master' && role !== 'admin') {
+      q = query(tasksRef, where('assignedTo', '==', userName), orderBy('date', 'desc'));
+    }
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tasksData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Task[];
+      setTasks(tasksData);
+    });
+
+    return () => unsubscribe();
+  }, [role, userBranch, userName]);
+
   const assignableUsers = role === 'Branch' 
     ? users.filter(u => u.branch === userBranch && u.role === 'Operations')
     : users.filter(u => u.reportingManager === userName);
   
-  // Refined filteredTasks for Management: Tasks they assigned OR tasks assigned to them
-  const displayTasks = role === 'Branch'
-    ? tasks.filter(t => t.branch === userBranch)
-    : role === 'Management'
-      ? tasks.filter(t => t.assignedTo === userName || users.find(u => u.name === t.assignedTo)?.reportingManager === userName)
-      : tasks.filter(t => t.assignedTo === userName);
+  const displayTasks = tasks;
 
-  const handleCreateTask = () => {
-    if (!newTask.title || !newTask.assignedTo) return;
-    const task: Task = {
-      id: Date.now(),
-      title: newTask.title,
-      description: newTask.description,
-      assignedTo: newTask.assignedTo,
-      branch: userBranch || '',
-      status: 'Pending',
-      remarks: '',
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      assignmentDate: newTask.assignmentDate,
-      tatDate: newTask.tatDate
-    };
-    setTasks(prev => [task, ...prev]);
-    setShowTaskModal(false);
-    setNewTask({ 
-      title: '', 
-      description: '', 
-      assignedTo: '',
-      assignmentDate: new Date().toISOString().split('T')[0],
-      tatDate: ''
-    });
+  const handleCreateTask = async () => {
+    if (!newTask.title || !newTask.assignedTo || !auth.currentUser) return;
+    setIsSubmitting(true);
+    try {
+      const taskData = {
+        title: newTask.title,
+        description: newTask.description,
+        assignedTo: newTask.assignedTo,
+        branch: userBranch || '',
+        status: 'Pending',
+        remarks: '',
+        date: new Date().toISOString(),
+        assignmentDate: newTask.assignmentDate,
+        tatDate: newTask.tatDate,
+        uid: auth.currentUser.uid
+      };
+      await addDoc(collection(db, 'tasks'), taskData);
+      setShowTaskModal(false);
+      setNewTask({ 
+        title: '', 
+        description: '', 
+        assignedTo: '',
+        assignmentDate: new Date().toISOString().split('T')[0],
+        tatDate: ''
+      });
+    } catch (error) {
+      console.error("Error creating task:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSubmitResponse = () => {
+  const handleSubmitResponse = async () => {
     if (!selectedTask) return;
-    setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, ...response } : t));
-    setSelectedTask(null);
-    setResponse({ status: 'Completed', remarks: '' });
+    setIsSubmitting(true);
+    try {
+      const taskRef = doc(db, 'tasks', selectedTask.id);
+      await updateDoc(taskRef, {
+        status: response.status,
+        remarks: response.remarks
+      });
+      setSelectedTask(null);
+      setResponse({ status: 'Completed', remarks: '' });
+    } catch (error) {
+      console.error("Error updating task:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

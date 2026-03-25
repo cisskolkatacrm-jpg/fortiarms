@@ -55,6 +55,7 @@ import {
   DollarSign,
   BarChart3,
   FileText,
+  Folder,
   FileSpreadsheet,
   Shirt,
   Calculator,
@@ -96,10 +97,28 @@ import { APIProvider, Map as GoogleMap, AdvancedMarker, Pin } from '@vis.gl/reac
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  setDoc,
+  updateDoc,
+  deleteDoc, 
+  doc, 
+  query, 
+  where,
+  orderBy,
+  getDoc
+} from 'firebase/firestore';
+import { auth, db, signInWithGoogle, onAuthStateChanged } from './firebase';
 import TrainingPlanner from './components/TrainingPlanner';
 import EmployeeOnboarding from './components/EmployeeOnboarding';
 import RecruitmentPlanning from './components/RecruitmentPlanning';
+import HRReports from './components/HRReports';
+import HRRepository from './components/HRRepository';
 import { FSMDashboard, DownloadCenter, RealTimePatrolling, FSMUserManagement, BeatAssignment, IncidentLogs, PatrolReports, PersonnelRegistration, AreaConfiguration } from './components/FSMModules';
+import ErrorBoundary from './components/ErrorBoundary';
+import { getDocFromServer } from 'firebase/firestore';
 
 const MAPS_API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 const hasValidMapsKey = Boolean(MAPS_API_KEY) && MAPS_API_KEY !== 'YOUR_API_KEY';
@@ -238,6 +257,18 @@ const getGreeting = () => {
   if (hour >= 17 && hour < 20) return "Good Evening";
   return "Good Night";
 };
+
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. ");
+    }
+    // Skip logging for other errors, as this is simply a connection test.
+  }
+}
+testConnection();
 
 const BranchDashboard = ({ 
   users, 
@@ -3067,217 +3098,7 @@ const BusinessVerticalsCard = ({ userBranch, userRegion }: { userBranch?: string
   );
 };
 
-const ExecutiveAnalyticsDashboard = () => {
-  const [selectedRegion, setSelectedRegion] = useState('All');
-  const [selectedBranch, setSelectedBranch] = useState('All');
 
-  const branchesByRegion: Record<string, string[]> = {
-    North: ['Delhi Branch', 'Chandigarh Branch', 'Jaipur Branch'],
-    South: ['Chennai Branch', 'Bangalore Branch', 'Hyderabad Branch'],
-    East: ['Kolkata Branch', 'Bhubaneswar Branch', 'Patna Branch'],
-    West: ['Mumbai Branch', 'Pune Branch', 'Ahmedabad Branch']
-  };
-
-  const regions = ['All', ...Object.keys(branchesByRegion)];
-  const branches = selectedRegion === 'All' 
-    ? ['All', ...Object.values(branchesByRegion).flat()] 
-    : ['All', ...branchesByRegion[selectedRegion]];
-
-  // Mock Data Generator based on selection
-  const getAnalyticsData = () => {
-    // In a real app, this would be filtered from a large dataset
-    const baseMultiplier = selectedRegion === 'All' ? 4 : 1;
-    const branchMultiplier = selectedBranch === 'All' ? 1 : 0.3;
-    const factor = baseMultiplier * branchMultiplier;
-
-    return {
-      assetValue: (125.5 * factor).toFixed(1),
-      budget: (85.2 * factor).toFixed(1),
-      collection: (78.4 * factor).toFixed(1),
-      businessVolume: (210.8 * factor).toFixed(1),
-      trends: [
-        { month: 'Oct', volume: 45 * factor, collection: 38 * factor },
-        { month: 'Nov', volume: 52 * factor, collection: 42 * factor },
-        { month: 'Dec', volume: 48 * factor, collection: 45 * factor },
-        { month: 'Jan', volume: 61 * factor, collection: 55 * factor },
-        { month: 'Feb', volume: 55 * factor, collection: 52 * factor },
-        { month: 'Mar', volume: 72 * factor, collection: 68 * factor },
-      ],
-      topBranches: [
-        { name: 'Delhi Branch', region: 'North', performance: 98, volume: '45.2 Cr' },
-        { name: 'Mumbai Branch', region: 'West', performance: 95, volume: '42.8 Cr' },
-        { name: 'Kolkata Branch', region: 'East', performance: 92, volume: '38.5 Cr' },
-        { name: 'Bangalore Branch', region: 'South', performance: 89, volume: '35.1 Cr' },
-      ].filter(b => (selectedRegion === 'All' || b.region === selectedRegion) && (selectedBranch === 'All' || b.name === selectedBranch))
-    };
-  };
-
-  const data = getAnalyticsData();
-
-  return (
-    <div className="space-y-8">
-      {/* Filters & Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5">
-            <Filter size={16} className="text-slate-400" />
-            <select 
-              value={selectedRegion}
-              onChange={(e) => { setSelectedRegion(e.target.value); setSelectedBranch('All'); }}
-              className="bg-transparent text-sm font-bold text-slate-700 outline-none min-w-[120px]"
-            >
-              {regions.map(r => <option key={r} value={r}>{r} Region</option>)}
-            </select>
-          </div>
-          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5">
-            <MapPin size={16} className="text-slate-400" />
-            <select 
-              value={selectedBranch}
-              onChange={(e) => setSelectedBranch(e.target.value)}
-              className="bg-transparent text-sm font-bold text-slate-700 outline-none min-w-[150px]"
-            >
-              {branches.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Interactive Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
-          <div className="relative z-10">
-            <div className="p-3 bg-emerald-500/10 text-emerald-600 rounded-2xl w-fit mb-4">
-              <Package size={20} />
-            </div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Asset Value</p>
-            <h4 className="text-2xl font-black text-slate-800">₹ {data.assetValue} <span className="text-sm font-bold text-slate-400">Cr</span></h4>
-            <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-lg">
-              <TrendingUp size={10} /> +4.2% Growth
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-violet-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
-          <div className="relative z-10">
-            <div className="p-3 bg-violet-100 text-violet-600 rounded-2xl w-fit mb-4">
-              <Calculator size={20} />
-            </div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Budget Allocated</p>
-            <h4 className="text-2xl font-black text-slate-800">₹ {data.budget} <span className="text-sm font-bold text-slate-400">Cr</span></h4>
-            <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-violet-600 bg-violet-50 w-fit px-2 py-1 rounded-lg">
-              <Activity size={10} /> 82% Utilized
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
-          <div className="relative z-10">
-            <div className="p-3 bg-emerald-100 text-emerald-600 rounded-2xl w-fit mb-4">
-              <Banknote size={20} />
-            </div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Collection</p>
-            <h4 className="text-2xl font-black text-slate-800">₹ {data.collection} <span className="text-sm font-bold text-slate-400">Cr</span></h4>
-            <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-emerald-600 bg-emerald-50 w-fit px-2 py-1 rounded-lg">
-              <CheckCircle size={10} /> 94% Recovery
-            </div>
-          </div>
-        </motion.div>
-
-        <motion.div whileHover={{ y: -5 }} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110" />
-          <div className="relative z-10">
-            <div className="p-3 bg-amber-100 text-amber-600 rounded-2xl w-fit mb-4">
-              <BarChart3 size={20} />
-            </div>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Business Volume</p>
-            <h4 className="text-2xl font-black text-slate-800">₹ {data.businessVolume} <span className="text-sm font-bold text-slate-400">Cr</span></h4>
-            <div className="mt-4 flex items-center gap-2 text-[10px] font-bold text-amber-600 bg-amber-50 w-fit px-2 py-1 rounded-lg">
-              <Target size={10} /> Target: 250 Cr
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Trends Chart */}
-        <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h3 className="text-lg font-bold text-slate-800">Operational Trends</h3>
-              <p className="text-xs text-slate-400 font-medium">Business Volume vs Collection Efficiency</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-emerald-600" />
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Volume</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Collection</span>
-              </div>
-            </div>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.trends}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                <Tooltip 
-                  cursor={{fill: '#f8fafc'}}
-                  contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
-                />
-                <Bar dataKey="volume" fill="#10B981" radius={[6, 6, 0, 0]} barSize={20} />
-                <Bar dataKey="collection" fill="#10B981" radius={[6, 6, 0, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Top Branches */}
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="text-lg font-bold text-slate-800">Top Branches</h3>
-            <button className="text-[10px] font-bold text-sky-600 uppercase tracking-widest hover:underline">View All</button>
-          </div>
-          <div className="space-y-6">
-            {data.topBranches.map((branch, idx) => (
-              <div key={idx} className="flex items-center justify-between group cursor-pointer">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm ${
-                    idx === 0 ? 'bg-amber-100 text-amber-600' : 
-                    idx === 1 ? 'bg-slate-100 text-slate-600' : 
-                    'bg-orange-50 text-orange-600'
-                  }`}>
-                    {idx + 1}
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-700 group-hover:text-emerald-600 transition-colors">{branch.name}</p>
-                    <p className="text-[10px] text-slate-400 font-medium">{branch.region} Region • Vol: {branch.volume}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-black text-slate-800">{branch.performance}%</p>
-                  <div className="w-16 h-1 bg-slate-100 rounded-full mt-1 overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${branch.performance}%` }} />
-                  </div>
-                </div>
-              </div>
-            ))}
-            {data.topBranches.length === 0 && (
-              <div className="text-center py-12">
-                <p className="text-sm text-slate-400 italic">No branches match the current filter</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const UserManagementCard = ({ users }: { users: any[] }) => {
   const [selectedRegion, setSelectedRegion] = useState('All');
@@ -3414,106 +3235,7 @@ const UserManagementCard = ({ users }: { users: any[] }) => {
   );
 };
 
-const TopManagementDashboard = ({ users }: { users: any[] }) => {
-  const strategicData = [
-    { name: 'Market Share', value: 35, color: '#10B981' },
-    { name: 'Competitor A', value: 25, color: '#8B5CF6' },
-    { name: 'Competitor B', value: 20, color: '#10B981' },
-    { name: 'Others', value: 20, color: '#F59E0B' },
-  ];
 
-  const growthData = [
-    { year: '2022', revenue: 85, profit: 12 },
-    { year: '2023', revenue: 110, profit: 18 },
-    { year: '2024', revenue: 135, profit: 25 },
-    { year: '2025', revenue: 156, profit: 32 },
-  ];
-
-  return (
-    <div className="space-y-10">
-      {/* Executive Landing Header */}
-      <div className="space-y-6">
-        <p className="text-slate-500 text-lg max-w-xl leading-relaxed">
-          Welcome to the Top Management command center. Monitor operations, track strategic growth, and oversee high-impact initiatives in real-time.
-        </p>
-      </div>
-
-      {/* Executive Analytics Section */}
-      <ExecutiveAnalyticsDashboard />
-
-      {/* Strategic KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard 
-          icon={Building2}
-          title="Total Branches"
-          value="16"
-          subtext="Across 4 Regions"
-          colorClass="text-emerald-600"
-          bgClass="bg-emerald-500/10"
-        />
-        <StatCard 
-          icon={TrendingUp}
-          title="Projected Growth"
-          value="+18.4%"
-          subtext="Next fiscal year"
-          colorClass="text-emerald-600"
-          bgClass="bg-emerald-50/50"
-        />
-        <StatCard 
-          icon={Shield}
-          title="Compliance Score"
-          value="98.5%"
-          subtext="ISO 9001 Certified"
-          colorClass="text-amber-600"
-          bgClass="bg-amber-50/50"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Growth Trends */}
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h3 className="text-lg font-bold text-slate-800">Strategic Growth Trends</h3>
-              <p className="text-xs text-slate-400 font-medium">Revenue vs Profitability (in Cr)</p>
-            </div>
-            <div className="p-2 bg-sky-50 rounded-xl text-sky-600">
-              <TrendingUp size={20} />
-            </div>
-          </div>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={growthData}>
-                <defs>
-                  <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorProf" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="year" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                />
-                <Area type="monotone" dataKey="revenue" stroke="#10B981" strokeWidth={3} fillOpacity={1} fill="url(#colorRev)" />
-                <Area type="monotone" dataKey="profit" stroke="#10B981" strokeWidth={3} fillOpacity={1} fill="url(#colorProf)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <BusinessVerticalsCard />
-        <UserManagementCard users={users} />
-      </div>
-
-    </div>
-  );
-};
 
 const ManagementDashboard = ({ 
   tasks, 
@@ -5398,7 +5120,7 @@ const BranchManagement = ({ userRole, setActiveModule }: { userRole?: string, se
                   <button onClick={() => setActiveModule?.('Asset Management')} className="p-3 rounded-xl bg-white border border-zinc-200 text-[10px] font-bold text-zinc-600 hover:border-emerald-500 hover:text-emerald-600 transition-all uppercase tracking-widest">Request Assets</button>
                   <button onClick={() => setActiveModule?.('User Management')} className="p-3 rounded-xl bg-white border border-zinc-200 text-[10px] font-bold text-zinc-600 hover:border-emerald-500 hover:text-emerald-600 transition-all uppercase tracking-widest">Staff Roster</button>
                   <button onClick={() => setActiveModule?.('Performance Reports')} className="p-3 rounded-xl bg-white border border-zinc-200 text-[10px] font-bold text-zinc-600 hover:border-emerald-500 hover:text-emerald-600 transition-all uppercase tracking-widest">Local Audit</button>
-                  <button onClick onClick={() => setActiveModule?.('Expense Management')} className="p-3 rounded-xl bg-white border border-zinc-200 text-[10px] font-bold text-zinc-600 hover:border-emerald-500 hover:text-emerald-600 transition-all uppercase tracking-widest">Expense Report</button>
+                  <button onClick={() => setActiveModule?.('Expense Management')} className="p-3 rounded-xl bg-white border border-zinc-200 text-[10px] font-bold text-zinc-600 hover:border-emerald-500 hover:text-emerald-600 transition-all uppercase tracking-widest">Expense Report</button>
                 </div>
               </div>
             </div>
@@ -8647,7 +8369,106 @@ const DateTimeDisplay = ({ showDate = true }: { showDate?: boolean }) => {
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState<{ name: string; role: string; region: string; branch: string; portal: string; clientCode?: string; clientLogo?: string } | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Auth and User Profile Sync
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // User is signed in, fetch profile from Firestore
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const userData = docSnap.data();
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              name: userData.name || firebaseUser.displayName || 'User',
+              role: userData.role || 'User',
+              branch: userData.branch || 'Delhi Branch',
+              region: userData.region || 'North',
+              portal: userData.portal || 'RMS',
+              ...userData
+            });
+            setIsLoggedIn(true);
+          } else {
+            // New user, create default profile
+            const defaultProfile = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              name: firebaseUser.displayName || 'User',
+              role: 'User',
+              branch: 'Delhi Branch',
+              region: 'North',
+              portal: 'RMS',
+              createdAt: new Date().toISOString()
+            };
+            setDoc(userRef, defaultProfile);
+            setUser(defaultProfile);
+            setIsLoggedIn(true);
+          }
+          setIsAuthReady(true);
+          setLoading(false);
+        });
+        return () => unsubscribeUser();
+      } else {
+        // User is signed out
+        setUser(null);
+        setIsLoggedIn(false);
+        setIsAuthReady(true);
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // Real-time Tasks Sync
+  useEffect(() => {
+    if (!isLoggedIn || !user) return;
+
+    const tasksRef = collection(db, 'tasks');
+    let q = query(tasksRef, orderBy('date', 'desc'));
+
+    // Filter based on role
+    if (user.role === 'Branch') {
+      q = query(tasksRef, where('branch', '==', user.branch), orderBy('date', 'desc'));
+    } else if (user.role !== 'Management' && user.role !== 'Master' && user.role !== 'admin') {
+      q = query(tasksRef, where('assignedTo', '==', user.name), orderBy('date', 'desc'));
+    }
+
+    const unsubscribeTasks = onSnapshot(q, (snapshot) => {
+      const tasksData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setTasks(tasksData);
+    });
+
+    return () => unsubscribeTasks();
+  }, [isLoggedIn, user]);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      console.error("Login failed:", error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      setIsLoggedIn(false);
+      setUser(null);
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
+
   const [activeTab, setActiveTab] = useState<'rms' | 'fsm'>('rms');
   const [fsmUserType, setFsmUserType] = useState<'CISS' | 'Client User'>('CISS');
   const [role, setRole] = useState('');
@@ -8727,11 +8548,6 @@ export default function App() {
     { date: '2026-03-20', item: 'Shoes', size: '9', qty: 50, rate: 800, amount: 40000, branch: 'Kolkata Branch' },
   ]);
 
-  const [tasks, setTasks] = useState([
-    { id: 1, title: 'Site Inspection', description: 'Inspect the Corporate Plaza site for security compliance.', assignedTo: 'Rahul Varma', branch: 'Delhi Branch', status: 'Pending', remarks: '', date: '2026-03-22' },
-    { id: 2, title: 'Equipment Maintenance', description: 'Check all CCTV cameras in the Retail Hub.', assignedTo: 'Vikram Rao', branch: 'Delhi Branch', status: 'Completed', remarks: 'All cameras are functional.', date: '2026-03-21' },
-  ]);
-
   const [issueData, setIssueData] = useState([
     { date: '2026-03-21', empId: 'EMP001', empName: 'John Doe', unit: 'Delhi Branch', item: 'Shirt', qty: 2, branch: 'Delhi Branch' },
   ]);
@@ -8753,7 +8569,7 @@ export default function App() {
   };
 
   const generalRoles = [
-    'Master', 'Top Management', 'Management', 'Branch', 'HR', 'IT', 'Sales', 'Operations', 'Accounts'
+    'Master', 'Management', 'Branch', 'HR', 'IT', 'Sales', 'Operations', 'Accounts'
   ];
 
   const cissFsmRoles = ['Master Admin', 'Supervisor', 'Security Personnel'];
@@ -8776,38 +8592,7 @@ export default function App() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    let finalRole = role;
-    
-    if (activeTab === 'fsm') {
-      finalRole = fsmRole || (fsmUserType === 'Client User' ? 'Client Admin' : 'FSM Master Admin');
-    }
-    
-    // For prototype purposes, set logged in state with a default region
-    // In a real app, we'd fetch the client logo based on the clientCode
-    const mockClientLogo = clientCode ? `https://picsum.photos/seed/${clientCode}/200/200` : undefined;
-
-    setUser({ 
-      name: userId || 'Admin User', 
-      role: finalRole, 
-      region: loginRegion, 
-      branch: loginBranch,
-      portal: activeTab === 'fsm' ? 'FSM' : 'RMS',
-      clientCode: activeTab === 'fsm' ? clientCode : undefined,
-      clientLogo: activeTab === 'fsm' ? mockClientLogo : undefined
-    });
-    setIsLoggedIn(true);
-    if (activeTab === 'fsm') {
-      setActiveModule('FSM Dashboard');
-    }
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setUser(null);
-    setUserId('');
-    setPassword('');
-    setFsmRole('');
-    setClientCode('');
+    handleLogin();
   };
 
   const getGreeting = () => {
@@ -8925,13 +8710,6 @@ export default function App() {
       ];
     }
 
-    if (role === 'Top Management') {
-      return [
-        ...baseItems,
-        leaveItem
-      ];
-    }
-
     if (role === 'Branch') {
       return [
         ...baseItems,
@@ -8949,6 +8727,7 @@ export default function App() {
         { icon: <Target size={20} />, label: 'Recruitment Planning' },
         { icon: <BookOpen size={20} />, label: 'Training Planner' },
         { icon: <FileText size={20} />, label: 'HR Reports' },
+        { icon: <Folder size={20} />, label: 'HR Repository' },
         leaveItem
       ];
     }
@@ -8973,7 +8752,8 @@ export default function App() {
 
   if (isLoggedIn && user) {
     return (
-      <div className="min-h-screen bg-zinc-50/50 font-sans text-zinc-900">
+      <ErrorBoundary>
+        <div className="min-h-screen bg-zinc-50/50 font-sans text-zinc-900">
         {/* Top Navigation Bar */}
         <header className="bg-white/80 backdrop-blur-md border-b border-zinc-200 sticky top-0 z-50">
           <div className="max-w-[1600px] mx-auto px-4 md:px-6 h-16 flex items-center justify-between">
@@ -9162,9 +8942,7 @@ export default function App() {
                 </div>
               ) : activeModule === 'Dashboard' ? (
                 <>
-                  {user.role === 'Top Management' ? (
-                    <TopManagementDashboard users={users} />
-                  ) : user.role === 'Management' ? (
+                  {user.role === 'Management' ? (
                     <ManagementDashboard 
                       tasks={tasks} 
                       setTasks={setTasks} 
@@ -9329,6 +9107,10 @@ export default function App() {
                 <FieldVisitModule title={activeModule === 'Field Visit Planner' ? 'Field Visit Planner' : 'Field Visit Management'} />
               ) : activeModule === 'Training Planner' ? (
                 <TrainingPlanner />
+              ) : activeModule === 'HR Reports' ? (
+                <HRReports />
+              ) : activeModule === 'HR Repository' ? (
+                <HRRepository />
               ) : activeModule === 'Employee Onboarding' ? (
                 <EmployeeOnboarding branches={Object.values(branchesByRegion).flat()} />
               ) : activeModule === 'Recruitment Planning' ? (
@@ -9376,11 +9158,13 @@ export default function App() {
           </div>
         </main>
       </div>
-    );
-  }
+    </ErrorBoundary>
+  );
+}
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row font-sans text-slate-900 bg-slate-50">
+    <ErrorBoundary>
+      <div className="min-h-screen flex flex-col lg:flex-row font-sans text-slate-900 bg-slate-50">
       {/* Left Panel - 30% */}
       <div className="w-full lg:w-[30%] xl:w-[25%] bg-[#0E2C49] p-6 md:p-10 lg:p-12 flex flex-col justify-center lg:justify-between relative overflow-hidden min-h-[350px] lg:min-h-screen">
         {/* Decorative background elements */}
@@ -9712,5 +9496,6 @@ export default function App() {
         </footer>
       </div>
     </div>
+  </ErrorBoundary>
   );
 }

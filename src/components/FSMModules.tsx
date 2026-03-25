@@ -30,8 +30,22 @@ import {
   MapPin,
   Trash2,
   Edit,
+  X,
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  query, 
+  where, 
+  orderBy,
+  doc,
+  updateDoc
+} from 'firebase/firestore';
+import { db, auth } from '../firebase';
 import { 
   AreaChart, 
   Area, 
@@ -58,6 +72,35 @@ export const FSMDashboard = ({ role }: { role: string }) => {
   const isClient = ['Admin', 'Security Officer', 'Unit In-charge Security Person'].includes(role);
   const isMaster = role === 'Master Admin';
 
+  const [stats, setStats] = useState({
+    personnel: 0,
+    incidents: 0,
+    patrols: 0,
+    areas: 0
+  });
+
+  useEffect(() => {
+    const unsubPersonnel = onSnapshot(collection(db, 'fsmPersonnel'), (snap) => {
+      setStats(prev => ({ ...prev, personnel: snap.size }));
+    });
+    const unsubIncidents = onSnapshot(collection(db, 'fsmIncidents'), (snap) => {
+      setStats(prev => ({ ...prev, incidents: snap.size }));
+    });
+    const unsubPatrols = onSnapshot(collection(db, 'fsmPatrols'), (snap) => {
+      setStats(prev => ({ ...prev, patrols: snap.size }));
+    });
+    const unsubAreas = onSnapshot(collection(db, 'fsmSites'), (snap) => {
+      setStats(prev => ({ ...prev, areas: snap.size }));
+    });
+
+    return () => {
+      unsubPersonnel();
+      unsubIncidents();
+      unsubPatrols();
+      unsubAreas();
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -81,10 +124,10 @@ export const FSMDashboard = ({ role }: { role: string }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: isMaster ? 'Total Clients' : 'Total Areas', value: isMaster ? '12' : '42', icon: isMaster ? <Building2 size={24} /> : <MapIcon size={24} />, color: 'blue' },
-          { label: 'Active Patrols', value: '18', icon: <Activity size={24} />, color: 'emerald' },
-          { label: 'Reports Filed', value: '124', icon: <FileText size={24} />, color: 'amber' },
-          { label: 'Alerts Raised', value: '3', icon: <AlertTriangle size={24} />, color: 'rose' },
+          { label: isMaster ? 'Total Clients' : 'Total Areas', value: stats.areas.toString(), icon: isMaster ? <Building2 size={24} /> : <MapIcon size={24} />, color: 'blue' },
+          { label: 'Active Patrols', value: stats.patrols.toString(), icon: <Activity size={24} />, color: 'emerald' },
+          { label: 'Reports Filed', value: stats.incidents.toString(), icon: <FileText size={24} />, color: 'amber' },
+          { label: 'Total Personnel', value: stats.personnel.toString(), icon: <Users size={24} />, color: 'rose' },
         ].map((stat, i) => (
           <motion.div 
             key={i}
@@ -828,26 +871,60 @@ export const RealTimePatrolling = ({ apiKey }: { apiKey: string }) => {
 };
 
 export const BeatAssignment = () => {
-  const [personnel] = useState([
-    { id: 'P01', name: 'S. Kumar', role: 'Security Personnel' },
-    { id: 'P02', name: 'R. Singh', role: 'Security Personnel' },
-    { id: 'P03', name: 'A. Khan', role: 'Security Personnel' },
-    { id: 'P04', name: 'M. Verma', role: 'Security Personnel' },
-  ]);
-
-  const [locations] = useState([
-    { id: 'L01', name: 'Main Gate', zone: 'Zone A' },
-    { id: 'L02', name: 'Warehouse B', zone: 'Zone B' },
-    { id: 'L03', name: 'Parking Lot', zone: 'Zone A' },
-    { id: 'L04', name: 'Zone C Entrance', zone: 'Zone C' },
-  ]);
-
-  const [assignments, setAssignments] = useState([
-    { id: 1, personnel: 'S. Kumar', location: 'Main Gate', shift: 'Morning', status: 'Active' },
-    { id: 2, personnel: 'A. Khan', location: 'Parking Lot', shift: 'Morning', status: 'Active' },
-  ]);
-
+  const [personnel, setPersonnel] = useState<any[]>([]);
+  const [locations, setLocations] = useState<any[]>([]);
+  const [assignments, setAssignments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [newAssignment, setNewAssignment] = useState({
+    personnelId: '',
+    locationId: '',
+    shift: 'Morning (06:00 - 14:00)'
+  });
+
+  useEffect(() => {
+    const unsubPersonnel = onSnapshot(collection(db, 'fsmPersonnel'), (snap) => {
+      setPersonnel(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubLocations = onSnapshot(collection(db, 'fsmSites'), (snap) => {
+      setLocations(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubAssignments = onSnapshot(query(collection(db, 'fsmBeats'), orderBy('createdAt', 'desc')), (snap) => {
+      setAssignments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    });
+
+    return () => {
+      unsubPersonnel();
+      unsubLocations();
+      unsubAssignments();
+    };
+  }, []);
+
+  const handleAssign = async () => {
+    if (!newAssignment.personnelId || !newAssignment.locationId) return;
+    setIsSubmitting(true);
+    try {
+      const selectedPersonnel = personnel.find(p => p.id === newAssignment.personnelId);
+      const selectedLocation = locations.find(l => l.id === newAssignment.locationId);
+
+      await addDoc(collection(db, 'fsmBeats'), {
+        personnelId: newAssignment.personnelId,
+        personnelName: selectedPersonnel?.name || 'Unknown',
+        locationId: newAssignment.locationId,
+        locationName: selectedLocation?.name || 'Unknown',
+        shift: newAssignment.shift,
+        status: 'Active',
+        createdAt: new Date().toISOString()
+      });
+      setShowAssignModal(false);
+    } catch (error) {
+      console.error("Error assigning beat:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -878,17 +955,23 @@ export const BeatAssignment = () => {
                   <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Location</th>
                   <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Shift</th>
                   <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</th>
-                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Actions</th>
+                  <th className="px-6 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {assignments.map((asgn) => (
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center">
+                      <Loader2 className="animate-spin mx-auto text-slate-400" size={24} />
+                    </td>
+                  </tr>
+                ) : assignments.map((asgn) => (
                   <tr key={asgn.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <p className="text-sm font-bold text-slate-900">{asgn.personnel}</p>
+                      <p className="text-sm font-bold text-slate-900">{asgn.personnelName}</p>
                     </td>
                     <td className="px-6 py-4">
-                      <p className="text-sm text-slate-600">{asgn.location}</p>
+                      <p className="text-sm text-slate-600">{asgn.locationName}</p>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-xs font-medium text-slate-600">{asgn.shift}</span>
@@ -899,7 +982,7 @@ export const BeatAssignment = () => {
                         {asgn.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 text-right">
                       <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
                         <MoreVertical size={16} />
                       </button>
@@ -915,17 +998,24 @@ export const BeatAssignment = () => {
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
             <h3 className="text-lg font-bold text-slate-900 mb-4">Available Personnel</h3>
             <div className="space-y-3">
-              {personnel.map(p => (
+              {personnel.filter(p => !assignments.some(a => a.personnelId === p.id)).map(p => (
                 <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 border border-slate-100">
                   <div>
                     <p className="text-sm font-bold text-slate-900">{p.name}</p>
-                    <p className="text-[10px] text-slate-500">{p.role}</p>
+                    <p className="text-[10px] text-slate-500">ID: {p.id.slice(-6).toUpperCase()}</p>
                   </div>
-                  <button className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => {
+                      setNewAssignment({...newAssignment, personnelId: p.id});
+                      setShowAssignModal(true);
+                    }}
+                    className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                  >
                     <Plus size={16} />
                   </button>
                 </div>
               ))}
+              {personnel.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No personnel registered.</p>}
             </div>
           </div>
         </div>
@@ -947,29 +1037,44 @@ export const BeatAssignment = () => {
             <div className="p-6 space-y-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Personnel</label>
-                <select className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10">
-                  {personnel.map(p => <option key={p.id}>{p.name}</option>)}
+                <select 
+                  value={newAssignment.personnelId}
+                  onChange={(e) => setNewAssignment({...newAssignment, personnelId: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                >
+                  <option value="">Select Personnel</option>
+                  {personnel.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Location</label>
-                <select className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10">
-                  {locations.map(l => <option key={l.id}>{l.name} ({l.zone})</option>)}
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Location (Site)</label>
+                <select 
+                  value={newAssignment.locationId}
+                  onChange={(e) => setNewAssignment({...newAssignment, locationId: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                >
+                  <option value="">Select Site</option>
+                  {locations.map(l => <option key={l.id} value={l.id}>{l.name} ({l.zoneName})</option>)}
                 </select>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Shift</label>
-                <select className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10">
+                <select 
+                  value={newAssignment.shift}
+                  onChange={(e) => setNewAssignment({...newAssignment, shift: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                >
                   <option>Morning (06:00 - 14:00)</option>
                   <option>Afternoon (14:00 - 22:00)</option>
                   <option>Night (22:00 - 06:00)</option>
                 </select>
               </div>
               <button 
-                onClick={() => setShowAssignModal(false)}
-                className="w-full px-6 py-2 bg-emerald-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-colors mt-4 shadow-lg shadow-emerald-500/20"
+                onClick={handleAssign}
+                disabled={isSubmitting}
+                className="w-full px-6 py-2 bg-emerald-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-colors mt-4 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
               >
-                Confirm Assignment
+                {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : 'Confirm Assignment'}
               </button>
             </div>
           </motion.div>
@@ -980,11 +1085,49 @@ export const BeatAssignment = () => {
 };
 
 export const IncidentLogs = () => {
-  const [incidents] = useState([
-    { id: 'INC-001', date: '2026-03-24', time: '10:42', location: 'Warehouse B', type: 'Unsecured Door', severity: 'Medium', reporter: 'R. Singh', status: 'Resolved' },
-    { id: 'INC-002', date: '2026-03-24', time: '09:15', location: 'Main Gate', type: 'Unauthorized Entry Attempt', severity: 'High', reporter: 'S. Kumar', status: 'In Progress' },
-    { id: 'INC-003', date: '2026-03-23', time: '23:30', location: 'Parking Lot', type: 'Vandalism', severity: 'Low', reporter: 'A. Khan', status: 'Pending' },
-  ]);
+  const [incidents, setIncidents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [newIncident, setNewIncident] = useState({
+    location: '',
+    type: '',
+    severity: 'Medium',
+    description: ''
+  });
+
+  useEffect(() => {
+    const q = query(collection(db, 'fsmIncidents'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setIncidents(data);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleReportIncident = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!auth.currentUser) return;
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'fsmIncidents'), {
+        ...newIncident,
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        reporter: auth.currentUser.displayName || 'Anonymous',
+        status: 'Pending',
+        createdAt: new Date().toISOString(),
+        uid: auth.currentUser.uid
+      });
+      setShowModal(false);
+      setNewIncident({ location: '', type: '', severity: 'Medium', description: '' });
+    } catch (error) {
+      console.error("Error reporting incident:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -998,7 +1141,10 @@ export const IncidentLogs = () => {
             <Filter size={16} />
             Filter Logs
           </button>
-          <button className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-2">
+          <button 
+            onClick={() => setShowModal(true)}
+            className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-2"
+          >
             <Plus size={16} />
             Report Incident
           </button>
@@ -1020,10 +1166,16 @@ export const IncidentLogs = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {incidents.map((inc) => (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <Loader2 className="animate-spin mx-auto text-slate-400" size={24} />
+                  </td>
+                </tr>
+              ) : incidents.map((inc) => (
                 <tr key={inc.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="px-6 py-4">
-                    <span className="text-sm font-bold text-emerald-600">{inc.id}</span>
+                    <span className="text-sm font-bold text-emerald-600">{inc.id.slice(-6).toUpperCase()}</span>
                   </td>
                   <td className="px-6 py-4">
                     <p className="text-sm text-slate-900">{inc.date}</p>
@@ -1058,20 +1210,105 @@ export const IncidentLogs = () => {
                   </td>
                 </tr>
               ))}
+              {!loading && incidents.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-slate-400 text-sm">No incidents reported yet.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-800">Report Incident</h3>
+                <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
+                  <X size={24} />
+                </button>
+              </div>
+              <form onSubmit={handleReportIncident} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Location</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newIncident.location}
+                    onChange={(e) => setNewIncident({...newIncident, location: e.target.value})}
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-sm"
+                    placeholder="e.g. Warehouse B"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Incident Type</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={newIncident.type}
+                    onChange={(e) => setNewIncident({...newIncident, type: e.target.value})}
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-sm"
+                    placeholder="e.g. Unauthorized Entry"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Severity</label>
+                  <select 
+                    value={newIncident.severity}
+                    onChange={(e) => setNewIncident({...newIncident, severity: e.target.value})}
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-sm"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Medium">Medium</option>
+                    <option value="High">High</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Description</label>
+                  <textarea 
+                    required
+                    value={newIncident.description}
+                    onChange={(e) => setNewIncident({...newIncident, description: e.target.value})}
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary text-sm h-24 resize-none"
+                    placeholder="Provide details about the incident..."
+                  />
+                </div>
+                <button 
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full py-3 bg-emerald-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20 mt-4 flex items-center justify-center gap-2"
+                >
+                  {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : 'Submit Report'}
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
 
 export const PatrolReports = () => {
-  const [reports] = useState([
-    { id: 'REP-101', date: '2026-03-24', shift: 'Morning', personnel: 'S. Kumar', checkpoints: '12/12', status: 'Completed' },
-    { id: 'REP-102', date: '2026-03-24', shift: 'Morning', personnel: 'A. Khan', checkpoints: '10/12', status: 'Incomplete' },
-    { id: 'REP-103', date: '2026-03-23', shift: 'Night', personnel: 'R. Singh', checkpoints: '15/15', status: 'Completed' },
-  ]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'fsmPatrols'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setReports(data);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const exportToPDF = () => {
     const doc = new jsPDF();
@@ -1079,7 +1316,7 @@ export const PatrolReports = () => {
     (doc as any).autoTable({
       startY: 20,
       head: [['Report ID', 'Date', 'Personnel', 'Shift', 'Checkpoints', 'Status']],
-      body: reports.map(r => [r.id, r.date, r.personnel, r.shift, r.checkpoints, r.status]),
+      body: reports.map(r => [r.id.slice(-6).toUpperCase(), r.date, r.personnel, r.shift, r.checkpoints, r.status]),
     });
     doc.save('patrol_reports.pdf');
   };
@@ -1208,10 +1445,19 @@ export const PatrolReports = () => {
 };
 
 export const PersonnelRegistration = () => {
-  const [personnelList, setPersonnelList] = useState([
-    { id: 'SP001', name: 'Amit Sharma', mobile: '9876543210', regDate: '2026-03-24', status: 'Active' },
-    { id: 'SP002', name: 'Vikram Singh', mobile: '9876543211', regDate: '2026-03-24', status: 'Active' },
-  ]);
+  const [personnelList, setPersonnelList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, 'fsmPersonnel'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPersonnelList(data);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -1221,23 +1467,29 @@ export const PersonnelRegistration = () => {
 
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newPersonnel = {
-      id: `SP00${personnelList.length + 1}`,
-      name: formData.name,
-      mobile: formData.mobile,
-      regDate: formData.regDate,
-      status: 'Active'
-    };
-    setPersonnelList([newPersonnel, ...personnelList]);
-    setFormData({
-      name: '',
-      mobile: '',
-      regDate: new Date().toISOString().split('T')[0]
-    });
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+    if (!auth.currentUser) return;
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'fsmPersonnel'), {
+        ...formData,
+        status: 'Active',
+        createdAt: new Date().toISOString(),
+        uid: auth.currentUser.uid
+      });
+      setFormData({
+        name: '',
+        mobile: '',
+        regDate: new Date().toISOString().split('T')[0]
+      });
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (error) {
+      console.error("Error registering personnel:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1343,10 +1595,16 @@ export const PersonnelRegistration = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {personnelList.map((p) => (
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-12 text-center">
+                        <Loader2 className="animate-spin mx-auto text-slate-400" size={24} />
+                      </td>
+                    </tr>
+                  ) : personnelList.map((p) => (
                     <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
-                        <span className="text-xs font-bold text-emerald-600">{p.id}</span>
+                        <span className="text-xs font-bold text-emerald-600">{p.id.slice(-6).toUpperCase()}</span>
                       </td>
                       <td className="px-6 py-4">
                         <p className="text-sm font-bold text-slate-900">{p.name}</p>
@@ -1375,25 +1633,94 @@ export const PersonnelRegistration = () => {
 };
 
 export const AreaConfiguration = () => {
-  const [zones, setZones] = useState([
-    { id: 'Z01', name: 'North Zone', sites: 4, checkpoints: 24 },
-    { id: 'Z02', name: 'South Zone', sites: 3, checkpoints: 18 },
-    { id: 'Z03', name: 'West Zone', sites: 5, checkpoints: 30 },
-  ]);
-
-  const [sites, setSites] = useState([
-    { id: 'S01', name: 'Warehouse A', zone: 'North Zone', checkpoints: 6 },
-    { id: 'S02', name: 'Main Office', zone: 'North Zone', checkpoints: 8 },
-    { id: 'S03', name: 'Retail Hub', zone: 'South Zone', checkpoints: 10 },
-  ]);
-
-  const [checkpoints, setCheckpoints] = useState([
-    { id: 'CP01', name: 'Main Entrance', site: 'Warehouse A', type: 'QR Scan' },
-    { id: 'CP02', name: 'Loading Dock', site: 'Warehouse A', type: 'QR Scan' },
-    { id: 'CP03', name: 'Server Room', site: 'Main Office', type: 'NFC Tag' },
-  ]);
-
+  const [zones, setZones] = useState<any[]>([]);
+  const [sites, setSites] = useState<any[]>([]);
+  const [checkpoints, setCheckpoints] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'Zones' | 'Sites' | 'Checkpoints'>('Zones');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [newZone, setNewZone] = useState({ name: '' });
+  const [newSite, setNewSite] = useState({ name: '', zoneId: '' });
+  const [newCheckpoint, setNewCheckpoint] = useState({ name: '', siteId: '', type: 'QR Scan' });
+
+  useEffect(() => {
+    const unsubZones = onSnapshot(collection(db, 'fsmZones'), (snap) => {
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubSites = onSnapshot(collection(db, 'fsmSites'), (snap) => {
+      setSites(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubCheckpoints = onSnapshot(collection(db, 'fsmCheckpoints'), (snap) => {
+      setCheckpoints(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    });
+
+    return () => {
+      unsubZones();
+      unsubSites();
+      unsubCheckpoints();
+    };
+  }, []);
+
+  const handleAddZone = async () => {
+    if (!newZone.name) return;
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'fsmZones'), {
+        name: newZone.name,
+        createdAt: new Date().toISOString()
+      });
+      setNewZone({ name: '' });
+      setShowAddModal(false);
+    } catch (error) {
+      console.error("Error adding zone:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddSite = async () => {
+    if (!newSite.name || !newSite.zoneId) return;
+    setIsSubmitting(true);
+    try {
+      const zone = zones.find(z => z.id === newSite.zoneId);
+      await addDoc(collection(db, 'fsmSites'), {
+        name: newSite.name,
+        zoneId: newSite.zoneId,
+        zoneName: zone?.name || 'Unknown',
+        createdAt: new Date().toISOString()
+      });
+      setNewSite({ name: '', zoneId: '' });
+      setShowAddModal(false);
+    } catch (error) {
+      console.error("Error adding site:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddCheckpoint = async () => {
+    if (!newCheckpoint.name || !newCheckpoint.siteId) return;
+    setIsSubmitting(true);
+    try {
+      const site = sites.find(s => s.id === newCheckpoint.siteId);
+      await addDoc(collection(db, 'fsmCheckpoints'), {
+        name: newCheckpoint.name,
+        siteId: newCheckpoint.siteId,
+        siteName: site?.name || 'Unknown',
+        type: newCheckpoint.type,
+        createdAt: new Date().toISOString()
+      });
+      setNewCheckpoint({ name: '', siteId: '', type: 'QR Scan' });
+      setShowAddModal(false);
+    } catch (error) {
+      console.error("Error adding checkpoint:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1402,7 +1729,10 @@ export const AreaConfiguration = () => {
           <h2 className="text-2xl font-bold text-slate-900">Area Configuration</h2>
           <p className="text-slate-500 text-sm">Configure zones, sites, and patrol checkpoints for client locations.</p>
         </div>
-        <button className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-500/20">
+        <button 
+          onClick={() => setShowAddModal(true)}
+          className="px-4 py-2 bg-emerald-500 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-600 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-500/20"
+        >
           <Plus size={16} />
           Add {activeTab.slice(0, -1)}
         </button>
@@ -1457,68 +1787,192 @@ export const AreaConfiguration = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {activeTab === 'Zones' && zones.map((zone) => (
-                <tr key={zone.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-bold text-emerald-600">{zone.id}</td>
-                  <td className="px-6 py-4 text-sm text-slate-900 font-medium">{zone.name}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{zone.sites}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{zone.checkpoints}</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-primary transition-colors">
-                        <Edit size={16} />
-                      </button>
-                      <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-600 transition-colors">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center">
+                    <Loader2 className="animate-spin mx-auto text-slate-400" size={24} />
                   </td>
                 </tr>
-              ))}
-              {activeTab === 'Sites' && sites.map((site) => (
-                <tr key={site.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-bold text-emerald-600">{site.id}</td>
-                  <td className="px-6 py-4 text-sm text-slate-900 font-medium">{site.name}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{site.zone}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{site.checkpoints}</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-primary transition-colors">
-                        <Edit size={16} />
-                      </button>
-                      <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-600 transition-colors">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {activeTab === 'Checkpoints' && checkpoints.map((cp) => (
-                <tr key={cp.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-bold text-emerald-600">{cp.id}</td>
-                  <td className="px-6 py-4 text-sm text-slate-900 font-medium">{cp.name}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{cp.site}</td>
-                  <td className="px-6 py-4">
-                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase tracking-widest">
-                      {cp.type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-primary transition-colors">
-                        <Edit size={16} />
-                      </button>
-                      <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-600 transition-colors">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              ) : (
+                <>
+                  {activeTab === 'Zones' && zones.map((zone) => (
+                    <tr key={zone.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 text-sm font-bold text-emerald-600">{zone.id.slice(-6).toUpperCase()}</td>
+                      <td className="px-6 py-4 text-sm text-slate-900 font-medium">{zone.name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{sites.filter(s => s.zoneId === zone.id).length}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{checkpoints.filter(cp => sites.find(s => s.id === cp.siteId)?.zoneId === zone.id).length}</td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-primary transition-colors">
+                            <Edit size={16} />
+                          </button>
+                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-600 transition-colors">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {activeTab === 'Sites' && sites.map((site) => (
+                    <tr key={site.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 text-sm font-bold text-emerald-600">{site.id.slice(-6).toUpperCase()}</td>
+                      <td className="px-6 py-4 text-sm text-slate-900 font-medium">{site.name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{site.zoneName}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{checkpoints.filter(cp => cp.siteId === site.id).length}</td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-primary transition-colors">
+                            <Edit size={16} />
+                          </button>
+                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-600 transition-colors">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {activeTab === 'Checkpoints' && checkpoints.map((cp) => (
+                    <tr key={cp.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 text-sm font-bold text-emerald-600">{cp.id.slice(-6).toUpperCase()}</td>
+                      <td className="px-6 py-4 text-sm text-slate-900 font-medium">{cp.name}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{cp.siteName}</td>
+                      <td className="px-6 py-4">
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase tracking-widest">
+                          {cp.type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-primary transition-colors">
+                            <Edit size={16} />
+                          </button>
+                          <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-rose-600 transition-colors">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden"
+          >
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <h3 className="font-bold text-slate-900">Add New {activeTab.slice(0, -1)}</h3>
+              <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                <Plus size={20} className="rotate-45" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {activeTab === 'Zones' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Zone Name</label>
+                  <input 
+                    type="text"
+                    value={newZone.name}
+                    onChange={(e) => setNewZone({ name: e.target.value })}
+                    placeholder="e.g. North Zone"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                  />
+                  <button 
+                    onClick={handleAddZone}
+                    disabled={isSubmitting}
+                    className="w-full px-6 py-2 bg-emerald-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-colors mt-4 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : 'Create Zone'}
+                  </button>
+                </div>
+              )}
+              {activeTab === 'Sites' && (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Site Name</label>
+                    <input 
+                      type="text"
+                      value={newSite.name}
+                      onChange={(e) => setNewSite({ ...newSite, name: e.target.value })}
+                      placeholder="e.g. Warehouse A"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Zone</label>
+                    <select 
+                      value={newSite.zoneId}
+                      onChange={(e) => setNewSite({ ...newSite, zoneId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                    >
+                      <option value="">Select Zone</option>
+                      {zones.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
+                    </select>
+                  </div>
+                  <button 
+                    onClick={handleAddSite}
+                    disabled={isSubmitting}
+                    className="w-full px-6 py-2 bg-emerald-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-colors mt-4 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : 'Create Site'}
+                  </button>
+                </div>
+              )}
+              {activeTab === 'Checkpoints' && (
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Checkpoint Name</label>
+                    <input 
+                      type="text"
+                      value={newCheckpoint.name}
+                      onChange={(e) => setNewCheckpoint({ ...newCheckpoint, name: e.target.value })}
+                      placeholder="e.g. Main Entrance"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Site</label>
+                    <select 
+                      value={newCheckpoint.siteId}
+                      onChange={(e) => setNewCheckpoint({ ...newCheckpoint, siteId: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                    >
+                      <option value="">Select Site</option>
+                      {sites.map(s => <option key={s.id} value={s.id}>{s.name} ({s.zoneName})</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Type</label>
+                    <select 
+                      value={newCheckpoint.type}
+                      onChange={(e) => setNewCheckpoint({ ...newCheckpoint, type: e.target.value })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-primary/10"
+                    >
+                      <option value="QR Scan">QR Scan</option>
+                      <option value="NFC Tag">NFC Tag</option>
+                      <option value="Manual Check">Manual Check</option>
+                    </select>
+                  </div>
+                  <button 
+                    onClick={handleAddCheckpoint}
+                    disabled={isSubmitting}
+                    className="w-full px-6 py-2 bg-emerald-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-emerald-600 transition-colors mt-4 shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : 'Create Checkpoint'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   UserPlus, 
   Calendar, 
@@ -23,12 +23,27 @@ import {
   Check,
   X,
   Camera,
-  Landmark
+  Landmark,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  query, 
+  where, 
+  orderBy 
+} from 'firebase/firestore';
+import { 
+  ref, 
+  uploadBytes, 
+  getDownloadURL 
+} from 'firebase/storage';
+import { db, auth, storage } from '../firebase';
 
 interface SecurityPersonnelRecruitmentProps {
   userBranch: string;
@@ -54,12 +69,24 @@ interface RecruitmentRecord {
   bankName: string;
   accountNumber: string;
   ifscCode: string;
+  uid: string;
+  createdAt: string;
+  fileUrls?: {
+    photo?: string;
+    aadhar?: string;
+    pan?: string;
+    bank?: string;
+  };
 }
 
 const SecurityPersonnelRecruitment: React.FC<SecurityPersonnelRecruitmentProps> = ({ userBranch }) => {
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dobError, setDobError] = useState<string | null>(null);
+  const [recruitments, setRecruitments] = useState<RecruitmentRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
   
   const [formData, setFormData] = useState({
     recruitmentDate: new Date().toISOString().split('T')[0],
@@ -89,29 +116,24 @@ const SecurityPersonnelRecruitment: React.FC<SecurityPersonnelRecruitmentProps> 
     bank?: File;
   }>({});
 
-  const [recruitments, setRecruitments] = useState<RecruitmentRecord[]>([
-    {
-      id: 'REC-001',
-      recruitmentDate: '2026-03-20',
-      branch: userBranch,
-      unitName: 'Corporate Plaza Unit A',
-      ticketNumber: 'TKT-12345',
-      uniformStatus: 'Issued',
-      fullName: 'Rajesh Kumar',
-      fatherName: 'Suresh Kumar',
-      contactNumber: '9876543210',
-      bloodGroup: 'O+',
-      education: 'Graduate',
-      address: '123, MG Road, Delhi',
-      personalDob: '1995-05-15',
-      aadharNumber: '1234 5678 9012',
-      aadharDob: '1995-05-15',
-      panNumber: 'ABCDE1234F',
-      bankName: 'HDFC Bank',
-      accountNumber: '50100123456789',
-      ifscCode: 'HDFC0001234'
-    }
-  ]);
+  useEffect(() => {
+    const q = query(
+      collection(db, 'securityRecruitments'),
+      where('branch', '==', userBranch),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as RecruitmentRecord[];
+      setRecruitments(data);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [userBranch]);
 
   const unitsByBranch: Record<string, string[]> = {
     'Delhi Branch': ['Corporate Plaza Unit A', 'Retail Hub Security', 'Airport Terminal 1'],
@@ -144,7 +166,13 @@ const SecurityPersonnelRecruitment: React.FC<SecurityPersonnelRecruitmentProps> 
     setFiles(prev => ({ ...prev, [type]: file }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const uploadFile = async (file: File, path: string) => {
+    const storageRef = ref(storage, path);
+    await uploadBytes(storageRef, file);
+    return await getDownloadURL(storageRef);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (formData.personalDob !== formData.aadharDob) {
@@ -157,41 +185,76 @@ const SecurityPersonnelRecruitment: React.FC<SecurityPersonnelRecruitmentProps> 
       return;
     }
 
-    setDobError(null);
-    
-    const newRecord: RecruitmentRecord = {
-      id: `REC-${Date.now().toString().slice(-6)}`,
-      ...formData,
-      branch: userBranch
-    };
+    if (!auth.currentUser) return;
 
-    setRecruitments([newRecord, ...recruitments]);
-    setIsSubmitted(true);
+    setDobError(null);
+    setIsSubmitting(true);
     
-    // Reset form
-    setFormData({
-      recruitmentDate: new Date().toISOString().split('T')[0],
-      unitName: '',
-      ticketNumber: '',
-      uniformStatus: '',
-      fullName: '',
-      fatherName: '',
-      contactNumber: '',
-      bloodGroup: '',
-      education: '',
-      address: '',
-      personalDob: '',
-      aadharNumber: '',
-      aadharDob: '',
-      panNumber: '',
-      bankName: '',
-      accountNumber: '',
-      ifscCode: '',
-      selfDeclaration: false
-    });
-    setFiles({});
-    
-    setTimeout(() => setIsSubmitted(false), 5000);
+    try {
+      const fileUrls: Record<string, string> = {};
+      const timestamp = Date.now();
+
+      // Upload files if they exist
+      if (files.photo) {
+        fileUrls.photo = await uploadFile(files.photo, `recruitments/${timestamp}_photo_${files.photo.name}`);
+      }
+      if (files.aadhar) {
+        fileUrls.aadhar = await uploadFile(files.aadhar, `recruitments/${timestamp}_aadhar_${files.aadhar.name}`);
+      }
+      if (files.pan) {
+        fileUrls.pan = await uploadFile(files.pan, `recruitments/${timestamp}_pan_${files.pan.name}`);
+      }
+      if (files.bank) {
+        fileUrls.bank = await uploadFile(files.bank, `recruitments/${timestamp}_bank_${files.bank.name}`);
+      }
+
+      const recruitmentData = {
+        ...formData,
+        branch: userBranch,
+        uid: auth.currentUser.uid,
+        createdAt: new Date().toISOString(),
+        fileUrls,
+        fileMetadata: {
+          photo: files.photo?.name || null,
+          aadhar: files.aadhar?.name || null,
+          pan: files.pan?.name || null,
+          bank: files.bank?.name || null
+        }
+      };
+
+      await addDoc(collection(db, 'securityRecruitments'), recruitmentData);
+      setIsSubmitted(true);
+      
+      // Reset form
+      setFormData({
+        recruitmentDate: new Date().toISOString().split('T')[0],
+        unitName: '',
+        ticketNumber: '',
+        uniformStatus: '',
+        fullName: '',
+        fatherName: '',
+        contactNumber: '',
+        bloodGroup: '',
+        education: '',
+        address: '',
+        personalDob: '',
+        aadharNumber: '',
+        aadharDob: '',
+        panNumber: '',
+        bankName: '',
+        accountNumber: '',
+        ifscCode: '',
+        selfDeclaration: false
+      });
+      setFiles({});
+      
+      setTimeout(() => setIsSubmitted(false), 5000);
+    } catch (error) {
+      console.error("Error submitting recruitment:", error);
+      alert("Failed to submit recruitment. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const downloadPDF = (record: RecruitmentRecord) => {

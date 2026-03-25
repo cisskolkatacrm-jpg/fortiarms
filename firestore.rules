@@ -1,0 +1,439 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: hr_files
+    // Document ID: {fileId}
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - category: string (required, enum: ["HR Policy", "Recruitment Requisition", "Insurance Policy"])
+    //   - uploadDate: string (required, format: date)
+    //   - size: string
+    //   - type: string
+    //   - uploadedBy: string
+    //   - uid: string (required, owner)
+    //
+    // Collection: recruitment_plans
+    // Document ID: {planId}
+    // Fields:
+    //   - id: string (required)
+    //   - branch: string (required)
+    //   - designation: string (required)
+    //   - count: integer (required)
+    //   - targetDate: string (required, format: date)
+    //   - trainingDate: string (required, format: date)
+    //   - status: string (required, enum: ["Draft", "Approved", "In Progress", "Completed"])
+    //   - priority: string (required, enum: ["High", "Medium", "Low"])
+    //   - uid: string (required, owner)
+    //
+    // Collection: training_sessions
+    // Document ID: {sessionId}
+    // Fields:
+    //   - id: string (required)
+    //   - title: string (required)
+    //   - subject: string (required)
+    //   - type: string (required, enum: ["Field Visit", "Classroom", "Virtual"])
+    //   - date: string (required, format: date)
+    //   - location: string
+    //   - trainer: string
+    //   - attendees: integer
+    //   - clientName: string
+    //   - status: string (required, enum: ["Planned", "Completed", "Cancelled"])
+    //   - description: string
+    //   - checkpoints: list (optional)
+    //   - uid: string (required, owner)
+    //
+    // Collection: employees
+    // Document ID: {employeeId}
+    // Fields:
+    //   - id: string (required)
+    //   - fullName: string (required)
+    //   - email: string (required, format: email)
+    //   - phone: string
+    //   - designation: string (required)
+    //   - branch: string (required)
+    //   - joiningDate: string (required, format: date)
+    //   - uid: string (required, owner)
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - name: string
+    //   - role: string (required, enum: ["admin", "HR", "IT", "Operations", "Branch", "Management", "Security Officer", "Unit In-charge Security Person", "Master Admin", "User"])
+    //   - branch: string
+    //   - reportingManager: string
+    //
+    // Collection: tasks
+    // Document ID: {taskId}
+    // Fields:
+    //   - id: string
+    //   - title: string (required)
+    //   - description: string
+    //   - assignedTo: string (required)
+    //   - branch: string
+    //   - status: string (required, enum: ["Pending", "Completed", "In Progress"])
+    //   - remarks: string
+    //   - date: string
+    //   - assignmentDate: string (format: date)
+    //   - tatDate: string (format: date)
+    //   - uid: string (required, owner)
+    //
+    // Collection: securityRecruitments
+    // Document ID: {recruitmentId}
+    // Fields:
+    //   - id: string
+    //   - recruitmentDate: string (required, format: date)
+    //   - branch: string (required)
+    //   - unitName: string
+    //   - ticketNumber: string
+    //   - uniformStatus: string
+    //   - fullName: string (required)
+    //   - fatherName: string
+    //   - contactNumber: string
+    //   - bloodGroup: string
+    //   - education: string
+    //   - address: string
+    //   - personalDob: string (format: date)
+    //   - aadharNumber: string
+    //   - aadharDob: string (format: date)
+    //   - panNumber: string
+    //   - bankName: string
+    //   - accountNumber: string
+    //   - ifscCode: string
+    //   - uid: string (required, owner)
+    //   - fileUrls: map (optional)
+    //   - fileMetadata: map (optional)
+    //
+    // Collection: fsmIncidents
+    // Document ID: {incidentId}
+    // Fields:
+    //   - id: string
+    //   - type: string (required)
+    //   - location: string (required)
+    //   - time: string (required)
+    //   - status: string (required)
+    //   - description: string
+    //   - reportedBy: string
+    //   - uid: string (required, owner)
+    //
+    // Collection: fsmPatrols
+    // Document ID: {patrolId}
+    // Fields:
+    //   - id: string
+    //   - area: string (required)
+    //   - officer: string (required)
+    //   - time: string (required)
+    //   - status: string (required)
+    //   - checkpoints: integer
+    //   - uid: string (required, owner)
+    //
+    // Collection: fsmPersonnel
+    // Document ID: {personnelId}
+    // Fields:
+    //   - id: string
+    //   - name: string (required)
+    //   - mobile: string (required)
+    //   - regDate: string (required, format: date)
+    //   - status: string (required)
+    //   - createdAt: string
+    //   - uid: string (required, owner)
+    //
+    // Collection: fsmZones
+    // Document ID: {zoneId}
+    // Fields:
+    //   - name: string (required)
+    //   - createdAt: string (format: date-time)
+    //
+    // Collection: fsmSites
+    // Document ID: {siteId}
+    // Fields:
+    //   - name: string (required)
+    //   - zoneId: string (required)
+    //   - zoneName: string (required)
+    //   - createdAt: string (format: date-time)
+    //
+    // Collection: fsmCheckpoints
+    // Document ID: {checkpointId}
+    // Fields:
+    //   - name: string (required)
+    //   - siteId: string (required)
+    //   - siteName: string (required)
+    //   - type: string (required)
+    //   - createdAt: string (format: date-time)
+    //
+    // Collection: fsmBeats
+    // Document ID: {beatId}
+    // Fields:
+    //   - personnelId: string (required)
+    //   - personnelName: string (required)
+    //   - locationId: string (required)
+    //   - locationName: string (required)
+    //   - shift: string (required)
+    //   - status: string (required)
+    //   - createdAt: string (format: date-time)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "cisskolkatacrm@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isHR() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'HR' || isAdmin());
+    }
+
+    function isOperations() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['Operations', 'Branch', 'Management', 'Security Officer', 'Unit In-charge Security Person', 'Master Admin'] || isAdmin());
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}.*");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidHRFile(data) {
+      return hasRequiredFields(['name', 'category', 'uploadDate', 'uid']) &&
+        data.name is string && data.name.size() > 0 && data.name.size() < 255 &&
+        data.category in ["HR Policy", "Recruitment Requisition", "Insurance Policy"] &&
+        isValidDateString(data.uploadDate) &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidRecruitmentPlan(data) {
+      return hasRequiredFields(['branch', 'designation', 'count', 'targetDate', 'status', 'uid']) &&
+        data.branch is string && data.branch.size() > 0 &&
+        data.designation is string && data.designation.size() > 0 &&
+        data.count is int && data.count >= 0 &&
+        isValidDateString(data.targetDate) &&
+        data.status in ["Draft", "Approved", "In Progress", "Completed"] &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidTrainingSession(data) {
+      return hasRequiredFields(['title', 'subject', 'type', 'date', 'status', 'uid']) &&
+        data.title is string && data.title.size() > 0 &&
+        data.subject is string && data.subject.size() > 0 &&
+        data.type in ["Field Visit", "Classroom", "Virtual"] &&
+        isValidDateString(data.date) &&
+        data.status in ["Planned", "Completed", "Cancelled"] &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidEmployee(data) {
+      return hasRequiredFields(['fullName', 'designation', 'branch', 'joiningDate', 'uid']) &&
+        data.fullName is string && data.fullName.size() > 0 &&
+        data.designation is string && data.designation.size() > 0 &&
+        data.branch is string && data.branch.size() > 0 &&
+        isValidDateString(data.joiningDate) &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidTask(data) {
+      return hasRequiredFields(['title', 'assignedTo', 'status', 'uid']) &&
+        data.title is string && data.title.size() > 0 &&
+        data.assignedTo is string && data.assignedTo.size() > 0 &&
+        data.status in ["Pending", "Completed", "In Progress"] &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidSecurityRecruitment(data) {
+      return hasRequiredFields(['fullName', 'recruitmentDate', 'branch', 'uid']) &&
+        data.fullName is string && data.fullName.size() > 0 &&
+        isValidDateString(data.recruitmentDate) &&
+        data.branch is string && data.branch.size() > 0 &&
+        data.uid == request.auth.uid &&
+        (!('fileUrls' in data) || data.fileUrls is map) &&
+        (!('fileMetadata' in data) || data.fileMetadata is map);
+    }
+
+    function isValidFSMIncident(data) {
+      return hasRequiredFields(['type', 'location', 'time', 'status', 'uid']) &&
+        data.type is string && data.location is string &&
+        data.time is string && data.status is string &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidFSMPatrol(data) {
+      return hasRequiredFields(['area', 'officer', 'time', 'status', 'uid']) &&
+        data.area is string && data.officer is string &&
+        data.time is string && data.status is string &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidFSMPersonnel(data) {
+      return hasRequiredFields(['name', 'mobile', 'regDate', 'status', 'uid']) &&
+        data.name is string && data.name.size() > 0 &&
+        data.mobile is string && data.mobile.size() > 0 &&
+        isValidDateString(data.regDate) &&
+        data.status is string &&
+        data.uid == request.auth.uid;
+    }
+
+    function isValidFSMZone(data) {
+      return hasRequiredFields(['name', 'createdAt']) &&
+        data.name is string && data.name.size() > 0;
+    }
+
+    function isValidFSMSite(data) {
+      return hasRequiredFields(['name', 'zoneId', 'zoneName', 'createdAt']) &&
+        data.name is string && data.name.size() > 0 &&
+        data.zoneId is string && data.zoneName is string;
+    }
+
+    function isValidFSMCheckpoint(data) {
+      return hasRequiredFields(['name', 'siteId', 'siteName', 'type', 'createdAt']) &&
+        data.name is string && data.name.size() > 0 &&
+        data.siteId is string && data.siteName is string &&
+        data.type is string;
+    }
+
+    function isValidFSMBeat(data) {
+      return hasRequiredFields(['personnelId', 'personnelName', 'locationId', 'locationName', 'shift', 'status', 'createdAt']) &&
+        data.personnelId is string && data.personnelName is string &&
+        data.locationId is string && data.locationName is string &&
+        data.shift is string && data.status is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAdmin() || (isOwner(userId) && request.resource.data.role == resource.data.role);
+    }
+
+    match /hr_files/{fileId} {
+      allow read: if isHR();
+      allow create: if isHR() && isValidHRFile(request.resource.data);
+      allow update: if isHR() && isValidHRFile(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isHR() && resource.data.uid == request.auth.uid;
+    }
+
+    match /recruitment_plans/{planId} {
+      allow read: if isHR();
+      allow create: if isHR() && isValidRecruitmentPlan(request.resource.data);
+      allow update: if isHR() && isValidRecruitmentPlan(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isHR() && resource.data.uid == request.auth.uid;
+    }
+
+    match /training_sessions/{sessionId} {
+      allow read: if isHR();
+      allow create: if isHR() && isValidTrainingSession(request.resource.data);
+      allow update: if isHR() && isValidTrainingSession(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isHR() && resource.data.uid == request.auth.uid;
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isHR();
+      allow create: if isHR() && isValidEmployee(request.resource.data);
+      allow update: if isHR() && isValidEmployee(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isHR() && resource.data.uid == request.auth.uid;
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidTask(request.resource.data);
+      allow update: if isAuthenticated() && isValidTask(request.resource.data) && (resource.data.uid == request.auth.uid || request.resource.data.assignedTo == request.auth.uid);
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
+    match /securityRecruitments/{recruitmentId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidSecurityRecruitment(request.resource.data);
+      allow update: if isOperations() && isValidSecurityRecruitment(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isOperations() && resource.data.uid == request.auth.uid;
+    }
+
+    match /fsmIncidents/{incidentId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidFSMIncident(request.resource.data);
+      allow update: if isOperations() && isValidFSMIncident(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isOperations() && resource.data.uid == request.auth.uid;
+    }
+
+    match /fsmPatrols/{patrolId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidFSMPatrol(request.resource.data);
+      allow update: if isOperations() && isValidFSMPatrol(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isOperations() && resource.data.uid == request.auth.uid;
+    }
+
+    match /fsmPersonnel/{personnelId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidFSMPersonnel(request.resource.data);
+      allow update: if isOperations() && isValidFSMPersonnel(request.resource.data) && resource.data.uid == request.auth.uid;
+      allow delete: if isOperations() && resource.data.uid == request.auth.uid;
+    }
+
+    match /fsmZones/{zoneId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidFSMZone(request.resource.data);
+      allow update: if isOperations() && isValidFSMZone(request.resource.data);
+      allow delete: if isOperations();
+    }
+
+    match /fsmSites/{siteId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidFSMSite(request.resource.data);
+      allow update: if isOperations() && isValidFSMSite(request.resource.data);
+      allow delete: if isOperations();
+    }
+
+    match /fsmCheckpoints/{checkpointId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidFSMCheckpoint(request.resource.data);
+      allow update: if isOperations() && isValidFSMCheckpoint(request.resource.data);
+      allow delete: if isOperations();
+    }
+
+    match /fsmBeats/{beatId} {
+      allow read: if isOperations();
+      allow create: if isOperations() && isValidFSMBeat(request.resource.data);
+      allow update: if isOperations() && isValidFSMBeat(request.resource.data);
+      allow delete: if isOperations();
+    }
+    
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

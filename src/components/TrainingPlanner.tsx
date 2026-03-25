@@ -47,6 +47,16 @@ import {
   getYear,
   getMonth
 } from 'date-fns';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  orderBy 
+} from 'firebase/firestore';
+import { db, auth } from '../firebase';
 
 interface TrainingSession {
   id: string;
@@ -61,53 +71,62 @@ interface TrainingSession {
   status: 'Planned' | 'Completed' | 'Cancelled';
   description?: string;
   checkpoints?: string[];
+  uid: string;
 }
 
-const INITIAL_TRAININGS: TrainingSession[] = [
-  {
-    id: 'TR-001',
-    title: 'Operations Field Visit - Site A',
-    subject: 'Duty SOP',
-    type: 'Field Visit',
-    date: '2026-03-25',
-    location: 'Kolkata Industrial Hub',
-    trainer: 'Rajesh Kumar',
-    clientName: 'Tata Steel Hub',
-    status: 'Planned',
-    description: 'Quarterly field visit to assess operational efficiency and safety compliance.',
-    checkpoints: ['Equipment Check', 'Safety Protocol Review', 'Staff Interview', 'Efficiency Audit']
-  },
-  {
-    id: 'TR-002',
-    title: 'Advanced Safety Protocols',
-    subject: 'Fire',
-    type: 'Classroom',
-    date: '2026-03-28',
-    location: 'Main Conference Hall',
-    trainer: 'Sarah Jones',
-    attendees: 25,
-    status: 'Planned',
-    description: 'Mandatory safety training for all operations staff.'
-  },
-  {
-    id: 'TR-003',
-    title: 'Supply Chain Optimization',
-    subject: 'Personal development',
-    type: 'Classroom',
-    date: '2026-03-20',
-    location: 'Virtual Hub',
-    trainer: 'Michael Chen',
-    attendees: 18,
-    status: 'Completed',
-    description: 'Workshop on reducing lead times and optimizing inventory.'
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
   }
-];
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 const TrainingPlanner = () => {
-  const [trainings, setTrainings] = useState<TrainingSession[]>(() => {
-    const saved = localStorage.getItem('fortia_trainings');
-    return saved ? JSON.parse(saved) : INITIAL_TRAININGS;
-  });
+  const [trainings, setTrainings] = useState<TrainingSession[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -119,12 +138,60 @@ const TrainingPlanner = () => {
   const [selectedTraining, setSelectedTraining] = useState<TrainingSession | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('fortia_trainings', JSON.stringify(trainings));
-  }, [trainings]);
+    const q = query(collection(db, 'training_sessions'), orderBy('date', 'asc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const trainingsData = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id
+      })) as TrainingSession[];
+      setTrainings(trainingsData);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'training_sessions');
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleAddTraining = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!auth.currentUser) return;
+
+    const formData = new FormData(e.currentTarget);
+    const subject = selectedSubject === 'Other' ? customSubject : selectedSubject;
+    const newTraining = {
+      title: formData.get('title') as string,
+      subject: subject,
+      type: formData.get('type') as any,
+      date: formData.get('date') as string,
+      location: formData.get('location') as string,
+      trainer: formData.get('trainer') as string,
+      attendees: formData.get('type') === 'Classroom' ? parseInt(formData.get('attendees') as string) || 0 : 0,
+      clientName: formData.get('type') === 'Field Visit' ? formData.get('clientName') as string : '',
+      status: 'Planned',
+      description: formData.get('description') as string,
+      uid: auth.currentUser.uid
+    };
+
+    try {
+      await addDoc(collection(db, 'training_sessions'), newTraining);
+      setIsAdding(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'training_sessions');
+    }
+  };
+
+  const deleteTraining = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'training_sessions', id));
+      if (selectedTraining?.id === id) setSelectedTraining(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `training_sessions/${id}`);
+    }
+  };
 
   const filteredTrainings = trainings.filter(t => {
-    const matchesSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         t.trainer.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = (t.title?.toLowerCase() || '').includes(searchQuery.toLowerCase()) || 
+                         (t.trainer?.toLowerCase() || '').includes(searchQuery.toLowerCase());
     const matchesType = filterType === 'All' || t.type === filterType;
     return matchesSearch && matchesType;
   });
@@ -139,35 +206,8 @@ const TrainingPlanner = () => {
   const chartData = [
     { name: 'Field Visit', count: trainings.filter(t => t.type === 'Field Visit').length },
     { name: 'Classroom', count: trainings.filter(t => t.type === 'Classroom').length },
+    { name: 'Virtual', count: trainings.filter(t => t.type === 'Virtual').length },
   ];
-
-  const handleAddTraining = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const subject = selectedSubject === 'Other' ? customSubject : selectedSubject;
-    const newTraining: TrainingSession = {
-      id: `TR-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
-      title: formData.get('title') as string,
-      subject: subject,
-      type: formData.get('type') as any,
-      date: formData.get('date') as string,
-      location: formData.get('location') as string,
-      trainer: formData.get('trainer') as string,
-      attendees: formData.get('type') === 'Classroom' ? parseInt(formData.get('attendees') as string) || 0 : undefined,
-      clientName: formData.get('type') === 'Field Visit' ? formData.get('clientName') as string : undefined,
-      status: 'Planned',
-      description: formData.get('description') as string,
-    };
-    setTrainings([...trainings, newTraining]);
-    setIsAdding(false);
-  };
-
-  const deleteTraining = (id: string) => {
-    if (confirm('Are you sure you want to delete this training session?')) {
-      setTrainings(trainings.filter(t => t.id !== id));
-      if (selectedTraining?.id === id) setSelectedTraining(null);
-    }
-  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">

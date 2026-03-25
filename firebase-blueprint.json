@@ -1,0 +1,307 @@
+{
+  "entities": {
+    "HRFile": {
+      "title": "HR File",
+      "description": "A document uploaded to the HR repository",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string", "enum": ["HR Policy", "Recruitment Requisition", "Insurance Policy"] },
+        "uploadDate": { "type": "string", "format": "date" },
+        "size": { "type": "string" },
+        "type": { "type": "string" },
+        "uploadedBy": { "type": "string" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "category", "uploadDate", "uid"]
+    },
+    "RecruitmentPlan": {
+      "title": "Recruitment Plan",
+      "description": "A plan for manpower requirements",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "branch": { "type": "string" },
+        "designation": { "type": "string" },
+        "count": { "type": "integer" },
+        "targetDate": { "type": "string", "format": "date" },
+        "trainingDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["Draft", "Approved", "In Progress", "Completed"] },
+        "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
+        "uid": { "type": "string" }
+      },
+      "required": ["branch", "designation", "count", "targetDate", "status", "uid"]
+    },
+    "TrainingSession": {
+      "title": "Training Session",
+      "description": "A scheduled training session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subject": { "type": "string" },
+        "type": { "type": "string", "enum": ["Field Visit", "Classroom", "Virtual"] },
+        "date": { "type": "string", "format": "date" },
+        "location": { "type": "string" },
+        "trainer": { "type": "string" },
+        "attendees": { "type": "integer" },
+        "clientName": { "type": "string" },
+        "status": { "type": "string", "enum": ["Planned", "Completed", "Cancelled"] },
+        "description": { "type": "string" },
+        "checkpoints": { "type": "array", "items": { "type": "string" } },
+        "uid": { "type": "string" }
+      },
+      "required": ["title", "subject", "type", "date", "status", "uid"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "An employee registered through onboarding",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "designation": { "type": "string" },
+        "branch": { "type": "string" },
+        "joiningDate": { "type": "string", "format": "date" },
+        "uid": { "type": "string" }
+      },
+      "required": ["fullName", "designation", "branch", "joiningDate", "uid"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A task assigned to a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "branch": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Completed", "In Progress"] },
+        "remarks": { "type": "string" },
+        "date": { "type": "string" },
+        "assignmentDate": { "type": "string", "format": "date" },
+        "tatDate": { "type": "string", "format": "date" },
+        "uid": { "type": "string" }
+      },
+      "required": ["title", "assignedTo", "status", "uid"]
+    },
+    "SecurityRecruitment": {
+      "title": "Security Recruitment",
+      "description": "A record of security personnel recruitment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recruitmentDate": { "type": "string", "format": "date" },
+        "branch": { "type": "string" },
+        "unitName": { "type": "string" },
+        "ticketNumber": { "type": "string" },
+        "uniformStatus": { "type": "string" },
+        "fullName": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "contactNumber": { "type": "string" },
+        "bloodGroup": { "type": "string" },
+        "education": { "type": "string" },
+        "address": { "type": "string" },
+        "personalDob": { "type": "string", "format": "date" },
+        "aadharNumber": { "type": "string" },
+        "aadharDob": { "type": "string", "format": "date" },
+        "panNumber": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "ifscCode": { "type": "string" },
+        "uid": { "type": "string" },
+        "fileUrls": {
+          "type": "object",
+          "properties": {
+            "photo": { "type": "string" },
+            "aadhar": { "type": "string" },
+            "pan": { "type": "string" },
+            "bank": { "type": "string" }
+          }
+        },
+        "fileMetadata": {
+          "type": "object",
+          "properties": {
+            "photo": { "type": "string" },
+            "aadhar": { "type": "string" },
+            "pan": { "type": "string" },
+            "bank": { "type": "string" }
+          }
+        }
+      },
+      "required": ["fullName", "recruitmentDate", "branch", "uid"]
+    },
+    "FSMIncident": {
+      "title": "FSM Incident",
+      "description": "An incident logged in the FSM module",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "location": { "type": "string" },
+        "time": { "type": "string" },
+        "status": { "type": "string" },
+        "description": { "type": "string" },
+        "reportedBy": { "type": "string" },
+        "uid": { "type": "string" }
+      },
+      "required": ["type", "location", "time", "status", "uid"]
+    },
+    "FSMPatrol": {
+      "title": "FSM Patrol",
+      "description": "A patrol record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "area": { "type": "string" },
+        "officer": { "type": "string" },
+        "time": { "type": "string" },
+        "status": { "type": "string" },
+        "checkpoints": { "type": "integer" },
+        "uid": { "type": "string" }
+      },
+      "required": ["area", "officer", "time", "status", "uid"]
+    },
+    "FSMPersonnel": {
+      "title": "FSM Personnel",
+      "description": "A personnel registered in the FSM module",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "mobile": { "type": "string" },
+        "regDate": { "type": "string", "format": "date" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "uid": { "type": "string" }
+      },
+      "required": ["name", "mobile", "regDate", "status", "uid"]
+    },
+    "FSMZone": {
+      "title": "FSM Zone",
+      "description": "Geographical zone for security operations.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "FSMSite": {
+      "title": "FSM Site",
+      "description": "Specific site within a zone.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "zoneId": { "type": "string" },
+        "zoneName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "zoneId", "zoneName", "createdAt"]
+    },
+    "FSMCheckpoint": {
+      "title": "FSM Checkpoint",
+      "description": "Patrol checkpoint within a site.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "siteId": { "type": "string" },
+        "siteName": { "type": "string" },
+        "type": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "siteId", "siteName", "type", "createdAt"]
+    },
+    "FSMBeat": {
+      "title": "FSM Beat Assignment",
+      "description": "Assignment of personnel to a location and shift.",
+      "type": "object",
+      "properties": {
+        "personnelId": { "type": "string" },
+        "personnelName": { "type": "string" },
+        "locationId": { "type": "string" },
+        "locationName": { "type": "string" },
+        "shift": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["personnelId", "personnelName", "locationId", "locationName", "shift", "status", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A system user with role and branch information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "HR", "IT", "Operations", "Branch", "Management", "Security Officer", "Unit In-charge Security Person", "Master Admin", "User"] },
+        "branch": { "type": "string" },
+        "reportingManager": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
+    }
+  },
+  "firestore": {
+    "/hr_files/{fileId}": {
+      "schema": "HRFile",
+      "description": "Collection of HR documents"
+    },
+    "/recruitment_plans/{planId}": {
+      "schema": "RecruitmentPlan",
+      "description": "Collection of recruitment plans"
+    },
+    "/training_sessions/{sessionId}": {
+      "schema": "TrainingSession",
+      "description": "Collection of training sessions"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Collection of onboarded employees"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Collection of tasks"
+    },
+    "/securityRecruitments/{recruitmentId}": {
+      "schema": "SecurityRecruitment",
+      "description": "Collection of security personnel recruitments"
+    },
+    "/fsmIncidents/{incidentId}": {
+      "schema": "FSMIncident",
+      "description": "Collection of FSM incidents"
+    },
+    "/fsmPatrols/{patrolId}": {
+      "schema": "FSMPatrol",
+      "description": "Collection of FSM patrols"
+    },
+    "/fsmPersonnel/{personnelId}": {
+      "schema": "FSMPersonnel",
+      "description": "Collection of FSM personnel"
+    },
+    "/fsmZones/{zoneId}": {
+      "schema": "FSMZone",
+      "description": "Collection of FSM zones"
+    },
+    "/fsmSites/{siteId}": {
+      "schema": "FSMSite",
+      "description": "Collection of FSM sites"
+    },
+    "/fsmCheckpoints/{checkpointId}": {
+      "schema": "FSMCheckpoint",
+      "description": "Collection of FSM checkpoints"
+    },
+    "/fsmBeats/{beatId}": {
+      "schema": "FSMBeat",
+      "description": "Collection of FSM beat assignments"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of system users"
+    }
+  }
+}
