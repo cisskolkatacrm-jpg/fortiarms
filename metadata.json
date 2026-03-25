@@ -1,0 +1,5 @@
+{
+  "name": "Operations Training Planner",
+  "description": "A comprehensive module for planning and tracking operational training sessions, including field visits and safety protocols.",
+  "requestFramePermissions": ["geolocation"]
+}
